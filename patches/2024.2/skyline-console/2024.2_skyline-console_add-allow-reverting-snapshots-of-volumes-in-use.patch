@@ -1,0 +1,13 @@
+diff --git a/src/pages/storage/containers/Volume/actions/Restore.jsx b/src/pages/storage/containers/Volume/actions/Restore.jsx
+index ebd85a73..dc086e51 100644
+--- a/src/pages/storage/containers/Volume/actions/Restore.jsx
++++ b/src/pages/storage/containers/Volume/actions/Restore.jsx
+@@ -103,7 +103,7 @@ export class RestoreAction extends ModalAction {
+   static policy = 'volume:create';
+ 
+   static allowed = (item) => {
+-    return Promise.resolve(item.status === 'available');
++    return true
+   };
+ 
+   onSubmit = (values) => {

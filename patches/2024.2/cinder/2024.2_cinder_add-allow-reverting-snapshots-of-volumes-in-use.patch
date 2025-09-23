@@ -1,0 +1,64 @@
+diff --git a/cinder/volume/api.py b/cinder/volume/api.py
+index 0e20baff0..9aa160740 100644
+--- a/cinder/volume/api.py
++++ b/cinder/volume/api.py
+@@ -390,8 +390,9 @@ class API(base.Base):
+         """revert a volume to a snapshot"""
+         context.authorize(vol_action_policy.REVERT_POLICY,
+                           target_obj=volume)
++        volume_state = volume.status
+         v_res = volume.update_single_status_where(
+-            'reverting', 'available')
++            'reverting', ['available', 'in-use'])
+         if not v_res:
+             msg = (_("Can't revert volume %(vol_id)s to its latest snapshot "
+                      "%(snap_id)s. Volume's status must be 'available'.")
+@@ -408,7 +409,7 @@ class API(base.Base):
+                       "snap_id": snapshot.id})
+             raise exception.InvalidSnapshot(reason=msg)
+ 
+-        self.volume_rpcapi.revert_to_snapshot(context, volume, snapshot)
++        self.volume_rpcapi.revert_to_snapshot(context, volume, snapshot, volume_state)
+ 
+     def delete(self,
+                context: context.RequestContext,
+diff --git a/cinder/volume/manager.py b/cinder/volume/manager.py
+index 30de5d8c7..18914c073 100644
+--- a/cinder/volume/manager.py
++++ b/cinder/volume/manager.py
+@@ -1150,7 +1150,7 @@ class VolumeManager(manager.CleanableManager,
+         self.create_snapshot(context, snapshot)
+         return snapshot
+ 
+-    def revert_to_snapshot(self, context, volume, snapshot) -> None:
++    def revert_to_snapshot(self, context, volume, snapshot, original_volume_state) -> None:
+         """Revert a volume to a snapshot.
+ 
+         The process of reverting to snapshot consists of several steps:
+@@ -1207,7 +1207,7 @@ class VolumeManager(manager.CleanableManager,
+                 LOG.exception(msg, msg_args)
+ 
+         v_res = volume.update_single_status_where(
+-            'available', 'reverting')
++            original_volume_state, 'reverting')
+         if not v_res:
+             msg_args = {"id": volume.id,
+                         "status": 'available'}
+diff --git a/cinder/volume/rpcapi.py b/cinder/volume/rpcapi.py
+index 58de69c1c..0b36cebdd 100644
+--- a/cinder/volume/rpcapi.py
++++ b/cinder/volume/rpcapi.py
+@@ -180,11 +180,11 @@ class VolumeAPI(rpc.RPCAPI):
+                    volume=volume)
+ 
+     @rpc.assert_min_rpc_version('3.15')
+-    def revert_to_snapshot(self, ctxt, volume, snapshot):
++    def revert_to_snapshot(self, ctxt, volume, snapshot, volume_state):
+         version = self._compat_ver('3.15')
+         cctxt = self._get_cctxt(volume.service_topic_queue, version)
+         cctxt.cast(ctxt, 'revert_to_snapshot', volume=volume,
+-                   snapshot=snapshot)
++                   snapshot=snapshot, original_volume_state=volume_state)
+ 
+     def delete_volume(self,
+                       ctxt: context.RequestContext,
