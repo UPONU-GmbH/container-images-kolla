@@ -14,6 +14,13 @@ set -x
 
 # Set default values
 
+## custom
+BUILD_ID=2024.2
+OPENSTACK_VERSION=2024.2
+VERSION=9.2.0
+export BUILD_TYPE=uponu_custom
+
+## default
 BASE_ARCH=${BASE_ARCH:-x86_64}
 BUILD_ID=${BUILD_ID:-$(date +%Y%m%d)}
 BUILD_TYPE=${BUILD_TYPE:-all}

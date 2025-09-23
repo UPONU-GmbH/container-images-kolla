@@ -11,6 +11,13 @@ set -x
 
 # Set default values
 
+## custom
+BUILD_ID=2024.2
+DOCKER_NAMESPACE=osism
+OPENSTACK_VERSION=2024.2
+VERSION=9.2.0
+
+## default
 BUILD_ID=${BUILD_ID:-$(date +%Y%m%d)}
 DOCKER_NAMESPACE=${DOCKER_NAMESPACE:-osism}
 OPENSTACK_VERSION=${OPENSTACK_VERSION:-latest}
