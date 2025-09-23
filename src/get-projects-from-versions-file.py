@@ -22,6 +22,11 @@ OPENSTACK_CORE_PROJECTS = [
     "placement",
 ]
 
+UPONU_CUSTOM = [
+    "cinder",
+    "skyline-console",
+]
+
 filename = "release/latest/openstack-%s.yml" % OPENSTACK_VERSION
 with open(filename, "rb") as fp:
     versions = yaml.load(fp, Loader=yaml.FullLoader)
@@ -46,6 +51,11 @@ elif BUILD_TYPE == "openstack-additional":
 elif BUILD_TYPE == "infrastructure":
     all_projects = versions["infrastructure_projects"]
     del all_projects["openstack-base"]
+
+elif BUILD_TYPE == "uponu_custom":
+    all_projects = [
+        x for x in versions["openstack_projects"] if x in UPONU_CUSTOM
+    ]  # noqa: E501
 
 else:
     print("BUILD_TYPE %s not supported" % BUILD_TYPE)
