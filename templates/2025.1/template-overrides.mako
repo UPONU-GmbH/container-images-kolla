@@ -87,20 +87,6 @@ RUN curl -o /tmp/kolla-operations.tar.gz https://github.com/osism/kolla-operatio
     && rm -f /tmp/kolla-operations.tar.gz
 {% endblock %}
 
-{% block ovs_install %}
-COPY --from=osism.harbor.regio.digital/packages/ovs-debian-bookworm:v3.4.2 /*.deb /tmp/packages/
-RUN apt-get update ${"\\"}
-    && apt-get -y install --no-install-recommends ${"\\"}
-        python3-netifaces ${"\\"}
-        tcpdump ${"\\"}
-    && apt-get install -y -f /tmp/packages/openvswitch-common*.deb ${"\\"}
-    && apt-get install -y -f /tmp/packages/python3-openvswitch*.deb ${"\\"}
-    && apt-get install -y -f /tmp/packages/openvswitch-switch*.deb ${"\\"}
-    && rm -rf /tmp/packages ${"\\"}
-    && apt-get clean ${"\\"}
-    && rm -rf /var/lib/apt/lists/*
-{% endblock %}
-
 {% block keystone_footer %}
 RUN python3 -m pip --no-cache-dir install keystone-keycloak-backend
 RUN apt-get update ${"\\"}
@@ -112,30 +98,9 @@ RUN apt-get update ${"\\"}
     && apt-get clean ${"\\"}
     && rm -rf /var/lib/apt/lists/* ${"\\"}
     && a2enmod auth_openidc ${"\\"}
-    && a2enmod shib
+    && a2dismod shib ${"\\"}
+    && rm -f /etc/apache2/conf-enabled/shib.conf
 {% endblock %}
-
-##########################################
-# install open-iscsi bookworm-backport
-
-{% set osism_install_open_iscsi %}
-COPY --from=osism.harbor.regio.digital/packages/open-iscsi:bookworm-backports /*.deb /tmp/packages/
-RUN apt -y install -f /tmp/packages/libopeniscsiusr_*_amd64.deb -f /tmp/packages/open-iscsi_*_amd64.deb
-{% endset %}
-
-{% block base_footer %}
-{{ osism_install_open_iscsi }}
-{% endblock %}
-
-{% block nova_compute_footer %}
-{{ osism_install_open_iscsi }}
-{% endblock %}
-
-{% block iscsid_footer %}
-{{ osism_install_open_iscsi }} ${"\\"}
-RUN rm -f /etc/iscsi/initiatorname.iscsi
-{% endblock %}
-##########################################
 
 {% block footer %}
 RUN rm -rf /usr/share/doc/* ${"\\"}
