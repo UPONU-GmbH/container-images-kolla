@@ -35,6 +35,8 @@ kibana: dpkg -s kibana-oss
 # Version of Kolla is used
 kolla-toolbox: echo
 kuryr-libnetwork: pip3 show kuryr-libnetwork
+letsencrypt-lego: /opt/lego --version
+letsencrypt-webserver: dpkg -s apache2
 logstash: dpkg -s logstash-oss
 magnum: pip3 show magnum
 manila: pip3 show manila
@@ -66,7 +68,7 @@ prometheus-elasticsearch-exporter: bash -c '/opt/elasticsearch_exporter/elastics
 # haproxy_exporter, version 0.10.0 (branch: HEAD, revision: ec68a7b1129651dff5b4268dd1e423571652ca60)
 prometheus-haproxy-exporter: bash -c '/opt/haproxy_exporter/haproxy_exporter --version 2>&1'
 # Version of Kolla is used
-prometheus-libvirt-exporter: echo
+prometheus-libvirt-exporter: bash -c '/opt/libvirt-exporter --version 2>&1'
 # memcached_exporter, version 0.6.0 (branch: HEAD, revision: d7eadc3523ec9731b7865a188093f70140d54a8d)
 prometheus-memcached-exporter: bash -c '/opt/memcached_exporter/memcached_exporter --version 2>&1'
 # v1.5.1
@@ -77,12 +79,12 @@ prometheus-mtail: bash -c '/opt/mtail --version 2>&1'
 prometheus-mysqld-exporter: bash -c '/opt/mysqld_exporter/mysqld_exporter --version 2>&1'
 # node_exporter, version 0.18.1 (branch: HEAD, revision: 3db77732e925c08f675d7404a8c46466b2ece83e)
 prometheus-node-exporter: bash -c '/opt/node_exporter/node_exporter --version 2>&1'
-# openstack-exporter, version 1.3.0 (branch: HEAD, revision: b33bff9801ebcd714d9d08cabde8997101afe938)
-prometheus-openstack-exporter: echo
+# 4827ad4a95c3af9f56c026e168168050429793c3406c0330b9f9c4049e8bca3f  /opt/openstack-exporter/openstack-exporter
+prometheus-openstack-exporter: bash -c 'sha256sum /opt/openstack-exporter/openstack-exporter 2>&1'
 # ovn-exporter 1.0.4
 prometheus-ovn-exporter: /opt/ovn-exporter --version
 # prometheus, version 2.26.1 (branch: HEAD, revision: 6eeded0fdf760e81af75d9c44ce539ab77da4505)
-prometheus-v2-server: /opt/prometheus/prometheus --version
+prometheus: /opt/prometheus/prometheus --version
 proxysql: dpkg -s proxysql
 rabbitmq: dpkg -s rabbitmq-server
 redis: dpkg -s redis-server
@@ -95,5 +97,6 @@ storm: /opt/storm/bin/storm version
 swift: pip3 show swift
 tgtd: dpkg -s tgt
 trove: pip3 show trove
+watcher: pip3 show watcher
 # /opt/zookeeper/zookeeper-3.4.13.jar
 zookeeper: find /opt/zookeeper -maxdepth 1 -name 'zookeeper-*.jar'

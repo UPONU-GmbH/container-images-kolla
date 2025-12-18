@@ -11,6 +11,8 @@
 
 {% set glance_base_pip_packages_append = ['boto3'] %}
 
+{% set nova_libvirt_packages_packages_append = ['mdevctl'] %}
+
 {% block nova_libvirt_footer %}
 RUN chgrp tss /var/lib/swtpm-localca ${"\\"}
     && chmod g+w /var/lib/swtpm-localca
@@ -52,6 +54,8 @@ RUN apt-get update ${"\\"}
     && apt-get clean ${"\\"}
     && rm -rf /var/lib/apt/lists/*
 {% endblock %}
+
+{% set glance_base_packages_append = ['nvme-cli'] %}
 
 {% set kolla_toolbox_packages_append = ['iputils-ping', 'traceroute'] %}
 

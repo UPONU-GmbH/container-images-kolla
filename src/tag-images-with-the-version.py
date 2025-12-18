@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
+from datetime import datetime, timezone
 import os
 from packaging import version as packaging_version
 from re import findall, sub
@@ -13,12 +14,13 @@ from yaml import dump, safe_load, YAMLError
 
 IS_RELEASE = os.environ.get("IS_RELEASE", "False")
 TAG_POSTFIX = os.environ.get("TAG_POSTFIX", None)
+OPENSTACK_VERSION = os.environ.get("OPENSTACK_VERSION", "zed")
 
 if IS_RELEASE == "True":
     VERSION = os.environ.get("VERSION", "zed")
     FILTERS = {"label": f"de.osism.version={VERSION}"}
 else:
-    VERSION = os.environ.get("OPENSTACK_VERSION", "zed")
+    VERSION = OPENSTACK_VERSION
     FILTERS = {"label": f"de.osism.release.openstack={VERSION}"}
 
 with open("etc/tag-images-with-the-version.yml", "r") as fp:
@@ -81,13 +83,19 @@ for image in client.images.list(filters=FILTERS):
         if name in configuration:
             best_key = name
         else:
-            best_key = name.split("-")[0]
+            # Try removing version suffixes like -v2, -v3 from the name
+            # e.g., prometheus-v2-server -> prometheus-server
+            name_without_version = sub(r"-v[0-9]+", "", name)
+            if name_without_version in configuration:
+                best_key = name_without_version
+            else:
+                best_key = name.split("-")[0]
 
         if best_key not in configuration:
             logger.error(f"Configuration for {name} ({best_key}) not found")
             continue
 
-        if best_key == "ovn" and VERSION in ["2024.1", "2024.2"]:
+        if best_key == "ovn" and OPENSTACK_VERSION in ["2024.1", "2024.2"]:
             command = "ovn-controller --version"
         else:
             command = configuration[best_key]
@@ -104,13 +112,20 @@ for image in client.images.list(filters=FILTERS):
             )
             result = result.decode("utf-8")
 
-            # NOTE: the libvirt_export binary has no --version argument
-            # https://github.com/osism/container-images-kolla/issues/143
             if best_key == "prometheus-libvirt-exporter":
-                r = [VERSION]
+                # libvirt_exporter, version 2.2.0 (branch: , revision: unknown
+                r = findall(r"libvirt_exporter, version (.*) \(branch", result)
 
             elif best_key == "prometheus-openstack-exporter":
-                r = [VERSION]
+                # 4827ad4a95c3af9f56c026e168168050429793c3406c0330b9f9c4049e8bca3f  /opt/openstack-exporter/openstack-exporter
+                checksum = findall(r"(\S+)\s*\/opt", result)
+                if (
+                    "4827ad4a95c3af9f56c026e168168050429793c3406c0330b9f9c4049e8bca3f"
+                    in checksum
+                ):
+                    r = ["1.7.0"]
+                else:
+                    r = [image.labels["de.osism.commit.kolla_version"]]
 
             elif best_key == "prometheus-ovn-exporter":
                 # ovn-exporter 1.0.4
@@ -124,7 +139,11 @@ for image in client.images.list(filters=FILTERS):
                 # 2.0.1 (Commit:fa14705e51bd2ce5)
                 r = findall(r"(.*) \(Commit:", result)
 
-            elif best_key == "ovn" and VERSION in ["2024.1", "2024.2"]:
+            elif best_key == "letsencrypt-lego":
+                # lego version 4.20.4 linux/amd64
+                r = findall(r"lego version (.*) linux", result)
+
+            elif best_key == "ovn" and OPENSTACK_VERSION in ["2024.1", "2024.2"]:
                 # ovn-controller 22.03.0
                 r = findall(r"ovn-controller (.*)\n", result)
 
@@ -197,9 +216,11 @@ for image in client.images.list(filters=FILTERS):
                         f"Tag postfix '{TAG_POSTFIX}. is defined, extended tag is {target_tag}."
                     )
 
-                # Move release images to a release subproject
+                # Move release images to a release subproject with OpenStack version
                 if IS_RELEASE == "True":
-                    target_tag = target_tag.replace("/kolla/", "/kolla/release/")
+                    release_namespace = f"/kolla/release/{OPENSTACK_VERSION}/"
+                    if release_namespace not in target_tag:
+                        target_tag = target_tag.replace("/kolla/", release_namespace)
 
                 logger.info(
                     f"Adding org.opencontainers.image.version='{target_version}' label to {tag}"
@@ -230,7 +251,12 @@ with open("images.lst", "w+") as fp:
     for image in flat_list_of_images:
         fp.write(f"{image}\n")
 
-sbom = {"images": [], "versions": {}}
+sbom = {
+    "openstack_version": OPENSTACK_VERSION,
+    "created": datetime.now(timezone.utc).isoformat(),
+    "images": [],
+    "versions": {},
+}
 
 SBOM_IMAGE_TO_VERSION = {
     "aodh": "aodh-api",
@@ -264,6 +290,8 @@ SBOM_IMAGE_TO_VERSION = {
     "kolla_toolbox": "kolla-toolbox",
     "kolla-toolbox": "kolla-toolbox",
     "kuryr": "kuryr-libnetwork",
+    "letsencrypt_lego": "letsencrypt-lego",
+    "letsencrypt_webserver": "letsencrypt-webserver",
     "logstash": "logstash",
     "magnum": "magnum-api",
     "manila": "manila-api",
@@ -283,7 +311,7 @@ SBOM_IMAGE_TO_VERSION = {
     "hacluster": "hacluster",
     "hacluster_corosync": "hacluster-corosync",
     "placement": "placement-api",
-    "prometheus": "prometheus-v2-server",
+    "prometheus": "prometheus-server",
     "prometheus_alertmanager": "prometheus-alertmanager",
     "prometheus_blackbox_exporter": "prometheus-blackbox-exporter",
     "prometheus_cadvisor": "prometheus-cadvisor",
@@ -316,10 +344,15 @@ for image in flat_list_of_images:
     sbom_versions[name] = version
 
 for name in SBOM_IMAGE_TO_VERSION:
-    try:
-        sbom["versions"][name] = sbom_versions[SBOM_IMAGE_TO_VERSION[name]]
-    except KeyError:
-        pass
+    image_name = SBOM_IMAGE_TO_VERSION[name]
+    if image_name in sbom_versions:
+        sbom["versions"][name] = sbom_versions[image_name]
+    else:
+        # Try finding a version variant like prometheus-v2-server for prometheus-server
+        for sbom_name in sbom_versions:
+            if sub(r"-v[0-9]+", "", sbom_name) == image_name:
+                sbom["versions"][name] = sbom_versions[sbom_name]
+                break
 
 with open("images.yml", "w+") as fp:
     dump(sbom, fp, default_flow_style=False, explicit_start=True)
