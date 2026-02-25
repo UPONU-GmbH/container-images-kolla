@@ -1,5 +1,6 @@
 apt_preferences.ubuntu
 etc/kolla-build.conf
+kolla-build.conf
 images.lst
 images.yml
 tarballs

@@ -9,11 +9,6 @@ set -x
 
 # Set default values
 
-## custom
-OPENSTACK_VERSION=2024.2
-VERSION=9.2.0
-
-## default
 OPENSTACK_VERSION=${OPENSTACK_VERSION:-latest}
 VERSION=${VERSION:-latest}
 

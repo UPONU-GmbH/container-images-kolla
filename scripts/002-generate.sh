@@ -13,13 +13,6 @@ set -x
 
 # Set default values
 
-## custom
-BUILD_ID=2024.2
-DOCKER_NAMESPACE=osism
-OPENSTACK_VERSION=2024.2
-VERSION=9.2.0
-
-## default
 BASE=${BASE:-ubuntu}
 BASE_VERSION=${BASE_VERSION:-22.04}
 BUILD_ID=${BUILD_ID:-$(date +%Y%m%d)}
@@ -39,7 +32,7 @@ fi
 export VERSION
 export OPENSTACK_VERSION
 
-DOCKER_TAG=build-$BUILD_ID
+# DOCKER_TAG=build-$BUILD_ID
 KOLLA_BASE=$BASE
 KOLLA_BASE_TAG=$BASE_VERSION
 KOLLA_CONF_FILE=kolla-build.conf
