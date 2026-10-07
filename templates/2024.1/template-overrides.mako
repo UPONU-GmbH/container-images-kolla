@@ -9,6 +9,8 @@
 
 {% set glance_base_pip_packages_append = ['boto3'] %}
 
+{% set barbican_base_pip_packages_append = ['pykmip'] %}
+
 {% block nova_libvirt_footer %}
 RUN chgrp tss /var/lib/swtpm-localca ${"\\"}
     && chmod g+w /var/lib/swtpm-localca
@@ -98,7 +100,7 @@ RUN apt-get update ${"\\"}
 {% endblock %}
 
 {% block keystone_footer %}
-RUN python3 -m pip --no-cache-dir install keystone-keycloak-backend
+RUN python3 -m pip --no-cache-dir install -c /requirements/upper-constraints.txt keystone-keycloak-backend
 RUN apt-get update ${"\\"}
     && apt-get -y install --no-install-recommends ${"\\"}
            libapache2-mod-auth-openidc ${"\\"}

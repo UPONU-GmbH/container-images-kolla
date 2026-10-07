@@ -11,6 +11,14 @@
 
 {% set glance_base_pip_packages_append = ['boto3'] %}
 
+{% set barbican_base_pip_packages_append = ['pykmip'] %}
+{% block barbican_base_header %}
+## PyKMIP 0.10.0, pinned in the upper-constraints of the stable branches, calls ssl.wrap_socket(),
+## which was removed in Python 3.12. Connections of the kmip_plugin to the KMIP server fail with it.
+## https://github.com/osism/container-images-kolla/issues/806
+RUN sed -i 's/^PyKMIP===.*/PyKMIP===0.11.0/' /requirements/upper-constraints.txt
+{% endblock %}
+
 {% set nova_libvirt_packages_packages_append = ['mdevctl'] %}
 
 {% block nova_libvirt_footer %}
@@ -39,6 +47,7 @@ RUN curl -q -L -o /tmp/openstack-themes.tar.gz https://github.com/osism/openstac
 
 {% block base_header %}
 COPY apt_preferences.{{ base_distro }} /etc/apt/preferences
+COPY kolla-pip-check.py /usr/local/bin/kolla-pip-check.py
 COPY *.gpg /etc/kolla/apt-keys/
 
 RUN apt-get update ${"\\"}
@@ -84,15 +93,8 @@ RUN mkdir -p /var/lib/gnocchi/tmp ${"\\"}
     && chown -R gnocchi: /var/lib/gnocchi/tmp
 {% endblock %}
 
-{% block grafana_footer %}
-RUN curl -o /tmp/kolla-operations.tar.gz https://github.com/osism/kolla-operations/tarball/main ${"\\"}
-    && mkdir -p /operations ${"\\"}
-    && tar --strip-components=1 -xvzf /tmp/kolla-operations.tar.gz -C /operations ${"\\"}
-    && rm -f /tmp/kolla-operations.tar.gz
-{% endblock %}
-
 {% block keystone_footer %}
-RUN python3 -m pip --no-cache-dir install keystone-keycloak-backend
+RUN python3 -m pip --no-cache-dir install -c /requirements/upper-constraints.txt keystone-keycloak-backend
 RUN apt-get update ${"\\"}
     && apt-get -y install --no-install-recommends ${"\\"}
            libapache2-mod-auth-openidc ${"\\"}
@@ -108,7 +110,8 @@ RUN rm -rf /usr/share/doc/* ${"\\"}
     && rm -rf /usr/share/man/* ${"\\"}
     && apt-get remove -y build-essential ${"\\"}
     && apt-get autoremove -y ${"\\"}
-    && if [ -e /var/lib/kolla/venv/bin/python3 ]; then /var/lib/kolla/venv/bin/pip3 install --no-cache-dir pyclean==3.0.0; /var/lib/kolla/venv/bin/pyclean /var/lib/kolla/venv; /var/lib/kolla/venv/bin/pyclean /usr; /var/lib/kolla/venv/bin/pip3 uninstall -y pyclean; fi
+    && if [ -e /var/lib/kolla/venv/bin/python3 ]; then /var/lib/kolla/venv/bin/pip3 install --no-cache-dir pyclean==3.0.0; /var/lib/kolla/venv/bin/pyclean /var/lib/kolla/venv; /var/lib/kolla/venv/bin/pyclean /usr; /var/lib/kolla/venv/bin/pip3 uninstall -y pyclean; fi ${"\\"}
+    && if [ -e /var/lib/kolla/venv/bin/pip3 ]; then /var/lib/kolla/venv/bin/python3 /usr/local/bin/kolla-pip-check.py; fi
 {% endblock %}
 
 {% block labels %}

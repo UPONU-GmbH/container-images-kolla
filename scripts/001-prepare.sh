@@ -25,35 +25,114 @@ SOURCE_DOCKER_TAG=build-$BUILD_ID
 . defaults/all.sh
 . defaults/$OPENSTACK_VERSION.sh
 
+. scripts/patch-lib.sh
+
+reset_patch_manifest
+
 export VERSION
 export OPENSTACK_VERSION
+
+# clone_repository <url> <path>
+#
+# Clones <url> and aborts the build when it cannot. Retrying first is
+# deliberate: an anonymous clone from a public forge is a single HTTPS call
+# that the far side rejects or drops often enough to take a whole nightly
+# build with it. A clone that still fails after the retries is fatal, because
+# every later step assumes the checkout is there -- the `git checkout` below
+# picks the wrong tree, the patch loop runs `patch` in this repository instead
+# of the clone, and the build dies reporting "No file to patch", which reads
+# like a patch that was merged upstream rather than a failed clone.
+clone_repository () {
+    local url=$1
+    local path=$2
+    local attempts=3
+    local attempt
+
+    for ((attempt = 1; attempt <= attempts; attempt++)); do
+        if git clone "$url" "$path"; then
+            return 0
+        fi
+        echo "WARNING: cloning $url failed (attempt $attempt of $attempts)" >&2
+        rm -rf "$path"
+        sleep $((attempt * 10))
+    done
+
+    # TEMPORARY WORKAROUND for a GitHub-side fault -- see "Retiring this"
+    # below. Retry once over HTTP/1.1.
+    #
+    # Since 2026-09-02, anonymous clones of public github.com repositories are
+    # intermittently refused: the `GET .../info/refs` succeeds with 200, then
+    # the `POST .../git-upload-pack` that follows returns 401 with
+    # `www-authenticate: Basic realm="GitHub"`, so git tries to prompt for a
+    # password, finds no terminal, and aborts. The transport decides it.
+    # Measured on nodes while they were being refused: git's default
+    # (HTTP/2 with git protocol v2) took 15 refusals in one buildset, while
+    # HTTP/1.1 succeeded 9 times out of 9, four of those on the first attempt
+    # immediately after three consecutive default refusals of the same URL.
+    #
+    # This is a fallback and NOT a global `http.version` pin. A pin would work
+    # equally well, but it would also make the fault invisible the moment it
+    # recurs, and it is not understood well enough to stop watching. Reaching
+    # this code is the signal, so both markers below are stable, greppable
+    # strings with machine-readable `url=` and `after=` fields.
+    #
+    # Retiring this:
+    #
+    #   Judge it on REFUSALS, not on these markers. A marker only appears when
+    #   the default transport fails all $attempts times; if the fault merely
+    #   becomes rarer, a plain retry recovers and no marker is emitted at all
+    #   (observed: two jobs in the validating buildset took a refusal each and
+    #   recovered without reaching the fallback). Zero markers therefore does
+    #   NOT mean the fault is gone.
+    #
+    #   Retire when `could not read Username for 'https://github.com'` stops
+    #   appearing across CI for a sustained window -- not merely when
+    #   FALLBACK-HTTP11 stops appearing. Then revert this commit; the retry
+    #   loop and fail-fast behaviour above are independent of it and stay.
+    #
+    #   Note both markers are echoed under `set -x`, so each appears twice in
+    #   the job log. Halve any count.
+    echo "WARNING: FALLBACK-HTTP11 url=$url after=$attempts refused attempts" >&2
+    if git -c http.version=HTTP/1.1 clone "$url" "$path"; then
+        echo "WARNING: FALLBACK-HTTP11-SUCCEEDED url=$url after=$attempts refused attempts" >&2
+        return 0
+    fi
+    rm -rf "$path"
+
+    echo "ERROR: cloning $url into $path failed (HTTP/1.1 fallback also failed)" >&2
+    exit 1
+}
 
 # Clone release repository
 
 if [[ ! -e $RELEASE_REPOSITORY_PATH ]]; then
-    git clone $RELEASE_REPOSITORY $RELEASE_REPOSITORY_PATH
+    clone_repository "$RELEASE_REPOSITORY" "$RELEASE_REPOSITORY_PATH"
 fi
 
 # NOTE: For builds for a specific release, the OpenStack version is taken from the release repository.
 if [[ $VERSION != "latest" ]]; then
-    ( cd $RELEASE_REPOSITORY_PATH || exit; git fetch --all --force; git checkout "kolla-$VERSION" )
+    ( cd $RELEASE_REPOSITORY_PATH || exit 1; git fetch --all --force || exit 1; git checkout "kolla-$VERSION" || exit 1 ) || exit 1
     OPENSTACK_VERSION=$(grep "openstack_version:" release/latest/openstack.yml | awk -F': ' '{ print $2 }' | tr -d '"')
 fi
 
 # Clone repository
 
 if [[ ! -e $PROJECT_REPOSITORY_PATH ]]; then
-    git clone $PROJECT_REPOSITORY $PROJECT_REPOSITORY_PATH
+    clone_repository "$PROJECT_REPOSITORY" "$PROJECT_REPOSITORY_PATH"
 fi
 
 # Use required kolla release for dockerfiles
 
-pushd $PROJECT_REPOSITORY_PATH > /dev/null
+pushd $PROJECT_REPOSITORY_PATH > /dev/null || exit 1
+# An unresolvable ref is fatal as well: without this the checkout stays on the
+# default branch and the release gets built from the wrong kolla tree.
 if [[ "$OPENSTACK_VERSION" != "latest" ]]; then
     if [[ "$OPENSTACK_VERSION" == "2024.1" ]]; then
-        git checkout origin/unmaintained/$OPENSTACK_VERSION
+        git checkout origin/unmaintained/$OPENSTACK_VERSION || exit 1
+    elif [[ "$OPENSTACK_VERSION" == "2024.2" ]]; then
+        git checkout 2024.2-eol || exit 1
     else
-        git checkout origin/stable/$OPENSTACK_VERSION
+        git checkout origin/stable/$OPENSTACK_VERSION || exit 1
     fi
 fi
 export HASH_KOLLA=$(git rev-parse --short HEAD)
@@ -65,11 +144,9 @@ rm -rf $PROJECT_REPOSITORY_PATH/docker/rabbitmq/rabbitmq-4-1
 
 # Apply patches
 
-for patch in $(find patches/kolla-build/$OPENSTACK_VERSION -type f -name '*.patch'); do
+for patch in $(find patches/kolla-build/$OPENSTACK_VERSION -type f -name '*.patch' | sort); do
     pushd $PROJECT_REPOSITORY_PATH > /dev/null
-    echo "APPLY PATCH $patch"
-    patch --forward --batch -p1 --dry-run < ../$patch || exit 1
-    patch --forward --batch -p1 < ../$patch
+    apply_patch "$patch"
     popd > /dev/null
 done
 
@@ -86,6 +163,13 @@ python3 src/generate-apt-preferences-files.py > overlays/$OPENSTACK_VERSION/base
 echo DEBUG apt_preferences.ubuntu
 cat overlays/$OPENSTACK_VERSION/base/apt_preferences.ubuntu
 
+# Prepare kolla-pip-check.py
+#
+# One shared copy for every release, staged into the base overlay so it
+# lands in the base image's build context like apt_preferences.ubuntu does.
+
+cp src/kolla-pip-check.py overlays/$OPENSTACK_VERSION/base/kolla-pip-check.py
+
 # Copy overlay files
 
 for image in $(find overlays/$OPENSTACK_VERSION -maxdepth 1 -mindepth 1 -type d); do
@@ -100,9 +184,7 @@ for project in $(find patches/$OPENSTACK_VERSION -mindepth 1 -type d | grep koll
     project=$(basename $project)
     for patch in $(find patches/$OPENSTACK_VERSION/$project -type f -name '*.patch' | sort); do
         pushd $project > /dev/null
-        echo "APPLY PATCH $patch"
-        patch --forward --batch -p1 --dry-run < ../$patch || exit 1
-        patch --forward --batch -p1 < ../$patch
+        apply_patch "$patch"
         popd > /dev/null
     done
 done
