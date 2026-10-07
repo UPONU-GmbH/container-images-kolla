@@ -25,6 +25,7 @@ OPENSTACK_CORE_PROJECTS = [
 UPONU_CUSTOM = [
     "cinder",
     "skyline-console",
+    "nova",
 ]
 
 filename = "release/latest/openstack-%s.yml" % OPENSTACK_VERSION
